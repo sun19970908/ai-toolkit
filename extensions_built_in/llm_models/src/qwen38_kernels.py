@@ -1,3 +1,4 @@
+from typing import List
 """Small fused Triton kernels for the Qwen3.8 decode path. Inference only: every op
 falls back to the eager formulation under autograd or off the GPU."""
 
@@ -206,7 +207,7 @@ def decode_attention_fused_ok(q: torch.Tensor, k_cache: torch.Tensor) -> bool:
 
 
 @torch.library.custom_op("ostris::qwen38_add_rmsnorm", mutates_args=())
-def _add_rmsnorm_op(h: torch.Tensor, x: torch.Tensor, weight: torch.Tensor, eps: float, add_one: bool) -> list[torch.Tensor]:
+def _add_rmsnorm_op(h: torch.Tensor, x: torch.Tensor, weight: torch.Tensor, eps: float, add_one: bool) -> List[torch.Tensor]:
     shape = h.shape
     d = shape[-1]
     h2 = h.reshape(-1, d).contiguous()

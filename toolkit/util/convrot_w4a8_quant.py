@@ -1,3 +1,4 @@
+from typing import List
 """
 ConvRot W4A8 codebook backend (qtype ``convrotw4a8``): ComfyUI's ``asym_w4a8_int8``
 storage (comfy_kitchen AsymW4A8Int8Layout) as an OstrisQuantizer.
@@ -344,7 +345,7 @@ def _gemv_mp(m: int) -> int:
 
 
 @torch.library.custom_op("ostris::convrot_w4a8_act_quant", mutates_args=())
-def _w4a8_act_quant_op(x2d: torch.Tensor, act_qmax: int) -> list[torch.Tensor]:
+def _w4a8_act_quant_op(x2d: torch.Tensor, act_qmax: int) -> List[torch.Tensor]:
     """Rotated activation rows -> (int8 [MP, K], fp32 scales [MP]), MP = next pow2 of M."""
     m, k = x2d.shape
     mp = _gemv_mp(m)
