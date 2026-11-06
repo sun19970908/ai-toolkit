@@ -232,16 +232,18 @@ class Krea2Model(QwenImageVAEHolderMixin, BaseModel):
     def _load_text_encoder(self):
         dtype = self.torch_dtype
         te_path = self.model_config.model_kwargs.get("text_encoder_path", QWEN3_VL_PATH)
+        tokenizer_source = self.model_config.model_kwargs.get("tokenizer_path", QWEN3_VL_PATH)
         self.print_and_status_update(f"Loading Qwen3-VL text encoder from {te_path}")
 
         tokenizer = AutoTokenizer.from_pretrained(
-            te_path, max_length=self.max_text_length, token=HF_TOKEN
+            tokenizer_source, max_length=self.max_text_length, token=HF_TOKEN
         )
         processor = Qwen2TokenizerFast.from_pretrained(
-            te_path, max_length=self.max_text_length, token=HF_TOKEN
+            tokenizer_source, max_length=self.max_text_length, token=HF_TOKEN
         )
+        config_path = tokenizer_source if te_path.endswith(".safetensors") else None
         text_encoder = Qwen3VLTextEncoder.load_model(
-            te_path, dtype=dtype, subfolder="", token=HF_TOKEN
+            te_path, dtype=dtype, subfolder="", config_path=config_path, token=HF_TOKEN
         )
         vl_processor = None
         if self.is_edit:
@@ -640,6 +642,9 @@ class Krea2Model(QwenImageVAEHolderMixin, BaseModel):
             prompt = [prompt]
 
         if self.text_encoder.device == torch.device("cpu"):
+            if self.model_config.low_vram and hasattr(self, "model") and self.model is not None and getattr(self.model, "device", None) != torch.device("cpu"):
+                self.model.to("cpu")
+                flush()
             self.text_encoder.to(self.device_torch)
 
         # Normalize control images to a per-prompt list (List[List[Tensor]]).
@@ -685,6 +690,10 @@ class Krea2Model(QwenImageVAEHolderMixin, BaseModel):
             # (L, n, d) -> (L, n*d)
             features = features.reshape(features.shape[0], -1)
             features_list.append(features.to(self.torch_dtype))
+
+        if self.model_config.low_vram:
+            self.text_encoder.to("cpu")
+            flush()
 
         return AdvancedPromptEmbeds(text_embeds=features_list)
 

@@ -43,7 +43,7 @@ Quantized state attached to each module:
   cr_rot / module.cr_rot_size  rotation block size
 """
 
-from typing import Optional
+from typing import Optional, List
 
 import torch
 import torch.nn.functional as F
@@ -412,7 +412,7 @@ def _launch_nvfp4_kernel(x, packed, scales, pts, blocked_scales: bool):
 # the compiled graph never contains a symbolic constant_pad_nd, which inductor
 # mis-handles when fused with the op input.
 @torch.library.custom_op("ostris::convrot_nvfp4_act_quant", mutates_args=())
-def _nvfp4_act_quant_op(x: torch.Tensor) -> list[torch.Tensor]:
+def _nvfp4_act_quant_op(x: torch.Tensor) -> List[torch.Tensor]:
     rows, K = x.shape
     rows_pad = -(-rows // 16) * 16
     x = x.contiguous()
@@ -912,7 +912,7 @@ def _get_int8_kernels():
 # nodes with known output shapes (see _nvfp4_act_quant_op). rows are padded to a
 # multiple of 32 inside the op for torch._int_mm; callers slice the mm output.
 @torch.library.custom_op("ostris::convrot_int8_act_quant", mutates_args=())
-def _int8_act_quant_op(x: torch.Tensor, qmax: int) -> list[torch.Tensor]:
+def _int8_act_quant_op(x: torch.Tensor, qmax: int) -> List[torch.Tensor]:
     rows, K = x.shape
     rows_pad = -(-rows // 32) * 32
     x = x.contiguous()

@@ -101,6 +101,8 @@ def encode_krea_prompt(
             extra_inputs[k] = v
     else:
         # Prefix + prompt at natural length (no padding); truncate very long prompts.
+        if not prompt or isinstance(prompt, bool):
+            prompt = ""
         text = PROMPT_TEMPLATE_ENCODE_PREFIX + prompt
         inputs = tokenizer(
             [text],
