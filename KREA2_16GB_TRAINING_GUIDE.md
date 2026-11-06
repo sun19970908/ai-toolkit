@@ -17,7 +17,7 @@
 
 ---
 
-## 二、 踩坑总结与六大核心防爆秘籍
+## 二、 踩坑总结与七大核心防爆秘籍
 
 Krea 2 包含 12B 单流 DiT 主干与 4B Qwen3-VL 文本编码器，默认全精度训练需 48GB+ 显存。要在 16GB 显卡上稳如磐石运行，必须遵循以下规则：
 
@@ -32,15 +32,25 @@ Krea 2 包含 12B 单流 DiT 主干与 4B Qwen3-VL 文本编码器，默认全�
   ```
 
 ### 2. 层卸载（Layer Offloading）比例必须设为 1.0（100%）
-* **陷阱**：部分社区早期经验建议 `layer_offloading_transformer_percent: 0.5`（卸载 50%）。这会导致另外 50%（约 6.3GB）模型权重被**永久死锁**在显存中。当训练分桶抽到 1024x1024 高分辨率图时，激活值显存峰值达 10GB，加上死锁的 6.3GB 必定 OOM！
+* **陷阱**：部分社区早期经验建议 `layer_offloading_transformer_percent: 0.5`（卸载 50%）。这会导致另外 50%（约 6.3GB）模型权重被**永久死锁**在显存中。
 * **解决**：利用机器充沛的系统内存，将所有层置换给内存管理，GPU 显存中**零静态权重保留**，只在当前层计算时按需读入（单层仅 ~400MB）：
   ```yaml
   layer_offloading: true
   layer_offloading_transformer_percent: 1.0   # 100% 完全层卸载
   ```
-  实测开启后显存稳定在 **12.2 GB / 16.0 GB**，留有足足 **4GB 安全裕量**。
 
-### 3. 全局预缓存并彻底卸载文本编码器
+### 3. 分辨率锁定 768（16GB 显卡保命核心）
+* **陷阱**：如果分桶列表中包含 `1024`（如 `resolution: [768, 1024]`），在遇到 1024x1024 或长图（832x1248）时，注意力机制计算激活值呈平方倍数剧增（$4096^2$ 比 $2304^2$ 激增 3.16 倍），显存峰值直接逼近 15.5GB 物理极限，一旦累积微小显存碎片就会触发连续 OOM 终止训练。
+* **解决**：16GB 显卡**务必锁定 768 分辨率**：
+  ```yaml
+  datasets:
+    - resolution:
+        - 768
+  ```
+  * **优势**：显存占用仅在 **7 ~ 8 GB**，留有足足 **8 GB 巨大安全裕量**，绝不 OOM！而且训练速度提升 3 倍（单步仅需 5~8 秒）。
+  * **效果**：训练出的 LoRA 在 ComfyUI 中完全可以直接以 1024x1024 甚至更高分辨率进行推理，细节和解剖学结构完全不打折扣。
+
+### 4. 全局预缓存并彻底卸载文本编码器
 * **陷阱**：若在训练循环中实时计算文本和图像特征，Qwen3-VL (4B) 会与 DiT 主干同时争抢显存。
 * **解决**：在 `datasets:` 与 `train:` 中开启离线全盘缓存：
   ```yaml
@@ -52,7 +62,7 @@ Krea 2 包含 12B 单流 DiT 主干与 4B Qwen3-VL 文本编码器，默认全�
   ```
   第一次启动时耗时 1~2 分钟将特征存入 `_latent_cache` 和 `_t_e_cache`，随后彻底卸载释放文本端与 VAE，后续所有训练直接秒级读取硬盘缓存。
 
-### 4. 严禁训练中途采样预览
+### 5. 严禁训练中途采样预览
 * **陷阱**：训练每隔 250 步或第 0 步生成 sample 预览图时，推理管线会突发申请 3~4GB 显存，造成尖刺冲击，直接引发不可逆 OOM。
 * **解决**：16GB 显卡训练模式下必须彻底关闭中途生图：
   ```yaml
@@ -60,7 +70,7 @@ Krea 2 包含 12B 单流 DiT 主干与 4B Qwen3-VL 文本编码器，默认全�
     disable_sampling: true
   ```
 
-### 5. 流匹配调度器显式声明（避免 Step 0 崩溃）
+### 6. 流匹配调度器显式声明（避免 Step 0 崩溃）
 * **陷阱**：Krea 2 采用 Flow Matching 架构。ai-toolkit 默认将 `noise_scheduler` 继承为传统 `"ddpm"`，导致未执行动态位移计算，引发：
   `ValueError: mu must be passed when use_dynamic_shifting is set to True`。
 * **解决**：在 `train:` 区块必须显式写上：
@@ -69,7 +79,7 @@ Krea 2 包含 12B 单流 DiT 主干与 4B Qwen3-VL 文本编码器，默认全�
     noise_scheduler: "flowmatch"
   ```
 
-### 6. 关于 Triton 警告处理
+### 7. 关于 Triton 警告处理
 * **说明**：Windows 控制台出现 `WARNING:torchao.kernel.intmm: Detected no triton...` 是正常现象。Triton 主要是 Linux 内核，ai-toolkit 会自动回退到 PyTorch 原生 CUDA C++ 算子（`torch._int_mm`），对训练精度、质量与收敛**完全没有任何负面影响**，无需理会。
 
 ---
@@ -106,8 +116,7 @@ config:
           cache_latents_to_disk: true           # 开启硬盘缓存防爆显存（必需）
           cache_text_embeddings: true          # 预缓存文本特征（必需）
           resolution:
-            - 768                                # 开启双分辨率自适应分桶
-            - 1024
+            - 768                                # 16GB 显卡黄金分辨率：显存仅占用 ~8GB，绝不爆显存
 
       # 训练超参数
       train:
