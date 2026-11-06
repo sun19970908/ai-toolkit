@@ -95,6 +95,7 @@ config:
   process:
     - type: "diffusion_trainer"
       training_folder: "G:/AI/lora/ai-toolkit/output"
+      log_dir: "G:/AI/lora/ai-toolkit/output"          # 开启 TensorBoard 曲线图监控 (localhost:6006)
       device: "cuda:0"
       
       # LoRA 网络配置
